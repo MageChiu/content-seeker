@@ -1,0 +1,24 @@
+
+
+
+# client platforms tmp
+# client/.metadata
+# client/android/
+# client/ios/
+# client/macos/
+# client/test/
+# client/windows/
+
+# python
+__pycache__
+
+# debug
+debug-*.md
+.dbg/
+
+# trae
+.trae
+
+# local signing exports
+.env.github-secrets
+.gh-set-github-secrets.sh
