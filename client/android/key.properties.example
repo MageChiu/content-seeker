@@ -1,0 +1,7 @@
+storeFile=upload-keystore.jks
+storePassword=replace-with-keystore-password
+keyAlias=upload
+keyPassword=replace-with-key-password
+
+# Optional: override the Android application id used for release builds.
+APP_APPLICATION_ID=com.magechiu.contentseeker
