@@ -1,0 +1,344 @@
+name: Client Release
+
+on:
+  push:
+    branches:
+      - 'ci-sandbox/dev-*'
+    tags:
+      - 'release-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: client
+
+jobs:
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    env:
+      APP_APPLICATION_ID: ${{ secrets.ANDROID_APPLICATION_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Android support
+        run: flutter config --enable-android
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Validate Android signing secrets
+        if: startsWith(github.ref, 'refs/tags/release-')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+
+      - name: Prepare Android signing files
+        if: startsWith(github.ref, 'refs/tags/release-')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          keystore = base64.b64decode(os.environ["ANDROID_KEYSTORE_BASE64"])
+          Path("android").joinpath("upload-keystore.jks").write_bytes(keystore)
+          PY
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=${ANDROID_KEYSTORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEY_PASSWORD}
+          APP_APPLICATION_ID=${APP_APPLICATION_ID}
+          EOF
+
+      - name: Build Android APK
+        run: flutter build apk --release
+
+      - name: Build Android App Bundle
+        if: startsWith(github.ref, 'refs/tags/release-')
+        run: flutter build appbundle --release
+
+      - name: Package Android artifact
+        run: |
+          mkdir -p ../release-assets
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            ../release-assets/content-seeker-android-release.apk
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            cp build/app/outputs/bundle/release/app-release.aab \
+              ../release-assets/content-seeker-android-release.aab
+          fi
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-release-android
+          path: |
+            release-assets/content-seeker-android-release.apk
+            release-assets/content-seeker-android-release.aab
+          if-no-files-found: error
+          retention-days: 7
+
+  build-ios:
+    name: Build iOS
+    runs-on: macos-latest
+    env:
+      IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+      IOS_DEVELOPMENT_TEAM: ${{ secrets.IOS_DEVELOPMENT_TEAM }}
+      IOS_PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.IOS_PROVISIONING_PROFILE_SPECIFIER }}
+      IOS_CODE_SIGN_IDENTITY: ${{ secrets.IOS_CODE_SIGN_IDENTITY }}
+      IOS_EXPORT_METHOD: ${{ secrets.IOS_EXPORT_METHOD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable iOS support
+        run: flutter config --enable-ios
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Validate iOS signing secrets
+        if: startsWith(github.ref, 'refs/tags/release-')
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          test -n "$IOS_BUNDLE_IDENTIFIER"
+          test -n "$IOS_DEVELOPMENT_TEAM"
+          test -n "$IOS_PROVISIONING_PROFILE_SPECIFIER"
+          test -n "$IOS_CERTIFICATE_P12_BASE64"
+          test -n "$IOS_CERTIFICATE_PASSWORD"
+          test -n "$IOS_PROVISIONING_PROFILE_BASE64"
+
+      - name: Import iOS signing certificate
+        if: startsWith(github.ref, 'refs/tags/release-')
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+
+      - name: Install provisioning profile
+        if: startsWith(github.ref, 'refs/tags/release-')
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          profile = base64.b64decode(os.environ["IOS_PROVISIONING_PROFILE_BASE64"])
+          out = Path.home() / "Library" / "MobileDevice" / "Provisioning Profiles" / "content-seeker.mobileprovision"
+          out.write_bytes(profile)
+          PY
+
+      - name: Write iOS signing config
+        if: startsWith(github.ref, 'refs/tags/release-')
+        run: |
+          cat > ios/Flutter/AppConfig.xcconfig <<EOF
+          APP_BUNDLE_IDENTIFIER = ${IOS_BUNDLE_IDENTIFIER}
+          APP_DEVELOPMENT_TEAM = ${IOS_DEVELOPMENT_TEAM}
+          APP_CODE_SIGN_STYLE = Manual
+          APP_PROVISIONING_PROFILE_SPECIFIER = ${IOS_PROVISIONING_PROFILE_SPECIFIER}
+          APP_CODE_SIGN_IDENTITY = ${IOS_CODE_SIGN_IDENTITY:-Apple Distribution}
+          APP_EXPORT_METHOD = ${IOS_EXPORT_METHOD:-app-store}
+          EOF
+
+      - name: Write iOS export options
+        if: startsWith(github.ref, 'refs/tags/release-')
+        run: |
+          cat > ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>${IOS_EXPORT_METHOD:-app-store}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${IOS_DEVELOPMENT_TEAM}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${IOS_BUNDLE_IDENTIFIER}</key>
+              <string>${IOS_PROVISIONING_PROFILE_SPECIFIER}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Build signed iOS IPA
+        if: startsWith(github.ref, 'refs/tags/release-')
+        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+
+      - name: Build iOS app without codesign
+        if: ${{ !startsWith(github.ref, 'refs/tags/release-') }}
+        run: flutter build ios --release --no-codesign
+
+      - name: Package signed iOS artifact
+        if: startsWith(github.ref, 'refs/tags/release-')
+        run: |
+          mkdir -p ../release-assets
+          cp build/ios/ipa/*.ipa \
+            ../release-assets/content-seeker-ios-release.ipa
+
+      - name: Package iOS artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/release-') }}
+        run: |
+          mkdir -p ../release-assets
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios/iphoneos/Runner.app \
+            ../release-assets/content-seeker-ios-runner.app.zip
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-release-ios
+          path: |
+            release-assets/content-seeker-ios-release.ipa
+            release-assets/content-seeker-ios-runner.app.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable macOS desktop support
+        run: flutter config --enable-macos-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build macOS app
+        run: flutter build macos --release
+
+      - name: Package macOS artifact
+        run: |
+          mkdir -p ../release-assets
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/content_seeker.app \
+            ../release-assets/content-seeker-macos.app.zip
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-release-macos
+          path: release-assets/content-seeker-macos.app.zip
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop support
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows app
+        run: flutter build windows --release
+
+      - name: Package Windows artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ../release-assets | Out-Null
+          Compress-Archive `
+            -Path build/windows/x64/runner/Release/* `
+            -DestinationPath ../release-assets/content-seeker-windows-release.zip `
+            -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-release-windows
+          path: release-assets/content-seeker-windows-release.zip
+          retention-days: 7
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/release-')
+    needs:
+      - build-android
+      - build-ios
+      - build-macos
+      - build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: client-release-*
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*
