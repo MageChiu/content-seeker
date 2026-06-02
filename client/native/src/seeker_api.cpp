@@ -20,6 +20,18 @@
 
 static const char* SEEKER_VERSION = "0.2.0";
 
+static char* seeker_strdup(const char* str) {
+    if (!str) {
+        return nullptr;
+    }
+
+#if defined(_WIN32)
+    return _strdup(str);
+#else
+    return strdup(str);
+#endif
+}
+
 // 全局线程池（在 init 时创建）
 static std::unique_ptr<seeker::ThreadPool> g_thread_pool;
 
@@ -93,7 +105,7 @@ int32_t seeker_extract_stream(
         auto* plugin = seeker::ExtractorRegistry::instance().find_plugin(url_str);
         if (!plugin) {
             // 使用 strdup 分配持久内存，确保回调跨线程安全
-            char* err = strdup("no suitable extractor plugin found");
+            char* err = seeker_strdup("no suitable extractor plugin found");
             callback(request_id, nullptr, err);
             free(err);
             return;
@@ -101,11 +113,11 @@ int32_t seeker_extract_stream(
 
         try {
             std::string result = plugin->extract(url_str, options);
-            char* result_copy = strdup(result.c_str());
+            char* result_copy = seeker_strdup(result.c_str());
             callback(request_id, result_copy, nullptr);
             free(result_copy);
         } catch (const std::exception& e) {
-            char* err = strdup(e.what());
+            char* err = seeker_strdup(e.what());
             callback(request_id, nullptr, err);
             free(err);
         }
@@ -124,10 +136,10 @@ char* seeker_extract_stream_sync(
 ) {
     if (!seeker::SeekerContext::instance().is_initialized()) {
         // 返回错误 JSON 而非 nullptr，便于调试
-        return strdup("{\"error\":\"libseeker not initialized\"}");
+        return seeker_strdup("{\"error\":\"libseeker not initialized\"}");
     }
     if (!url) {
-        return strdup("{\"error\":\"url is null\"}");
+        return seeker_strdup("{\"error\":\"url is null\"}");
     }
 
     std::string url_str(url);
@@ -135,15 +147,15 @@ char* seeker_extract_stream_sync(
 
     auto* plugin = seeker::ExtractorRegistry::instance().find_plugin(url_str);
     if (!plugin) {
-        return strdup("{\"error\":\"no suitable extractor plugin found\"}");
+        return seeker_strdup("{\"error\":\"no suitable extractor plugin found\"}");
     }
 
     try {
         std::string result = plugin->extract(url_str, options);
-        return strdup(result.c_str());
+        return seeker_strdup(result.c_str());
     } catch (const std::exception& e) {
         std::string err = "{\"error\":\"" + seeker::json::escape(e.what()) + "\"}";
-        return strdup(err.c_str());
+        return seeker_strdup(err.c_str());
     }
 }
 

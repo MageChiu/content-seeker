@@ -41,8 +41,14 @@ endif()
 
 # QuickJS 集成（如果源文件存在）
 set(QUICKJS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/quickjs)
-if(EXISTS "${QUICKJS_DIR}/quickjs.c")
+set(SEEKER_ENABLE_QUICKJS OFF)
+if(EXISTS "${QUICKJS_DIR}/quickjs.c" AND NOT WIN32)
+    set(SEEKER_ENABLE_QUICKJS ON)
     message(STATUS "QuickJS found, enabling JS engine")
+    set(QUICKJS_VERSION "embedded")
+    if(EXISTS "${QUICKJS_DIR}/VERSION")
+        file(STRINGS "${QUICKJS_DIR}/VERSION" QUICKJS_VERSION LIMIT_COUNT 1)
+    endif()
     list(APPEND SEEKER_SOURCES
         ${QUICKJS_DIR}/quickjs.c
         ${QUICKJS_DIR}/libregexp.c
@@ -55,6 +61,13 @@ if(EXISTS "${QUICKJS_DIR}/quickjs.c")
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
         ${QUICKJS_DIR}
+    )
+elseif(EXISTS "${QUICKJS_DIR}/quickjs.c" AND WIN32)
+    message(STATUS "QuickJS found, but disabled on Windows; JS engine will be stubbed")
+    set(SEEKER_INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
 else()
     message(STATUS "QuickJS not found, JS engine will be stubbed")
@@ -75,9 +88,23 @@ endif()
 
 target_include_directories(seeker PUBLIC ${SEEKER_INCLUDE_DIRS})
 
+if(SEEKER_ENABLE_QUICKJS)
+    # Mirror the upstream QuickJS Makefile so embedded sources compile
+    # correctly outside of its native build system.
+    target_compile_definitions(seeker PRIVATE
+        _GNU_SOURCE
+        CONFIG_VERSION="${QUICKJS_VERSION}"
+    )
+endif()
+
 # 平台特定配置
 if(ANDROID)
-    target_link_libraries(seeker PRIVATE log)
+    # QuickJS uses libm symbols such as pow/sin/cos/fmod on Android.
+    # Link libm explicitly to avoid arm64 release link failures.
+    target_link_libraries(seeker PRIVATE
+        log
+        m
+    )
 elseif(APPLE)
     # 链接 Foundation 框架（NSURLSession HTTP 客户端需要）
     find_library(FOUNDATION_FRAMEWORK Foundation)
@@ -100,6 +127,9 @@ elseif(APPLE)
     )
 elseif(WIN32)
     target_compile_definitions(seeker PRIVATE WIN32_LEAN_AND_MEAN)
+    # QuickJS headers use designated initializers in C++ context on MSVC.
+    # Build the native target as C++20 on Windows to keep third_party sources untouched.
+    target_compile_features(seeker PRIVATE cxx_std_20)
 endif()
 
 # 导出符号

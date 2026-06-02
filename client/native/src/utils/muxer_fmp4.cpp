@@ -27,6 +27,18 @@
 
 namespace {
 
+char* seeker_strdup(const char* str) {
+    if (!str) {
+        return nullptr;
+    }
+
+#if defined(_WIN32)
+    return _strdup(str);
+#else
+    return strdup(str);
+#endif
+}
+
 std::string make_error(const std::string& msg) {
     std::string out;
     out.reserve(msg.size() + 16);
@@ -294,18 +306,18 @@ extern "C" SEEKER_API char* seeker_mux_av_to_mp4_fmp4(
     const char* output_path
 ) {
     if (!video_path || !output_path) {
-        return strdup(make_error("invalid arguments").c_str());
+        return seeker_strdup(make_error("invalid arguments").c_str());
     }
     std::vector<uint8_t> video_buf;
     if (!read_file(video_path, video_buf)) {
-        return strdup(make_error(std::string("cannot read video: ") + video_path).c_str());
+        return seeker_strdup(make_error(std::string("cannot read video: ") + video_path).c_str());
     }
 
     // 找 video 中的 ftyp / moov
     size_t v_ftyp = find_top_level_box(video_buf, "ftyp");
     size_t v_moov = find_top_level_box(video_buf, "moov");
     if (v_ftyp == static_cast<size_t>(-1) || v_moov == static_cast<size_t>(-1)) {
-        return strdup(make_error("video file is not a valid fragmented MP4").c_str());
+        return seeker_strdup(make_error("video file is not a valid fragmented MP4").c_str());
     }
 
     // 输出 = video_buf 的副本作为基底
@@ -319,11 +331,11 @@ extern "C" SEEKER_API char* seeker_mux_av_to_mp4_fmp4(
     if (audio_path && audio_path[0] != '\0') {
         std::vector<uint8_t> audio_buf;
         if (!read_file(audio_path, audio_buf)) {
-            return strdup(make_error(std::string("cannot read audio: ") + audio_path).c_str());
+            return seeker_strdup(make_error(std::string("cannot read audio: ") + audio_path).c_str());
         }
         size_t a_moov = find_top_level_box(audio_buf, "moov");
         if (a_moov == static_cast<size_t>(-1)) {
-            return strdup(make_error("audio file is not a valid fragmented MP4").c_str());
+            return seeker_strdup(make_error("audio file is not a valid fragmented MP4").c_str());
         }
 
         uint32_t a_track_id = get_first_track_id(audio_buf, a_moov);
@@ -334,10 +346,10 @@ extern "C" SEEKER_API char* seeker_mux_av_to_mp4_fmp4(
         // 此时 out 的 moov 在 v_moov 偏移上，merge 后 out moov 大小变化但起始偏移不变
         size_t out_moov = find_top_level_box(out, "moov");
         if (out_moov == static_cast<size_t>(-1)) {
-            return strdup(make_error("internal: lost moov in output").c_str());
+            return seeker_strdup(make_error("internal: lost moov in output").c_str());
         }
         if (!merge_moov(out, out_moov, audio_buf, a_moov, new_audio_id)) {
-            return strdup(make_error("failed to merge audio moov").c_str());
+            return seeker_strdup(make_error("failed to merge audio moov").c_str());
         }
 
         // 把 audio 的所有 moof+mdat 改写 track_id 后追加到 out 末尾
@@ -364,15 +376,15 @@ extern "C" SEEKER_API char* seeker_mux_av_to_mp4_fmp4(
     // 写 out 到文件
     std::ofstream of(output_path, std::ios::binary | std::ios::trunc);
     if (!of) {
-        return strdup(make_error(std::string("cannot open output: ") + output_path).c_str());
+        return seeker_strdup(make_error(std::string("cannot open output: ") + output_path).c_str());
     }
     of.write(reinterpret_cast<const char*>(out.data()),
              static_cast<std::streamsize>(out.size()));
     if (!of.good()) {
-        return strdup(make_error("write output failed").c_str());
+        return seeker_strdup(make_error("write output failed").c_str());
     }
     of.close();
 
     std::string ok = std::string("{\"ok\":true,\"output\":\"") + output_path + "\"}";
-    return strdup(ok.c_str());
+    return seeker_strdup(ok.c_str());
 }
