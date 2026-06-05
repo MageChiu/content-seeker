@@ -28,14 +28,26 @@
 #include <stdlib.h>
 #include <inttypes.h>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+
 /* set if CPU is big endian */
 #undef WORDS_BIGENDIAN
 
+#ifdef _MSC_VER
+#define likely(x)       (x)
+#define unlikely(x)     (x)
+#define force_inline __forceinline
+#define no_inline __declspec(noinline)
+#define __maybe_unused
+#else
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 #define force_inline inline __attribute__((always_inline))
 #define no_inline __attribute__((noinline))
 #define __maybe_unused __attribute__((unused))
+#endif
 
 #define xglue(x, y) x ## y
 #define glue(x, y) xglue(x, y)
@@ -117,25 +129,67 @@ static inline int64_t min_int64(int64_t a, int64_t b)
 /* WARNING: undefined if a = 0 */
 static inline int clz32(unsigned int a)
 {
+#ifdef _MSC_VER
+    unsigned long index;
+    _BitScanReverse(&index, a);
+    return 31 - (int)index;
+#else
     return __builtin_clz(a);
+#endif
 }
 
 /* WARNING: undefined if a = 0 */
 static inline int clz64(uint64_t a)
 {
+#ifdef _MSC_VER
+    unsigned long index;
+#if defined(_M_X64) || defined(_M_ARM64)
+    _BitScanReverse64(&index, a);
+    return 63 - (int)index;
+#else
+    if ((a >> 32) != 0) {
+        _BitScanReverse(&index, (unsigned int)(a >> 32));
+        return 31 - (int)index;
+    }
+    _BitScanReverse(&index, (unsigned int)a);
+    return 63 - ((int)index + 32);
+#endif
+#else
     return __builtin_clzll(a);
+#endif
 }
 
 /* WARNING: undefined if a = 0 */
 static inline int ctz32(unsigned int a)
 {
+#ifdef _MSC_VER
+    unsigned long index;
+    _BitScanForward(&index, a);
+    return (int)index;
+#else
     return __builtin_ctz(a);
+#endif
 }
 
 /* WARNING: undefined if a = 0 */
 static inline int ctz64(uint64_t a)
 {
+#ifdef _MSC_VER
+    unsigned long index;
+#if defined(_M_X64) || defined(_M_ARM64)
+    _BitScanForward64(&index, a);
+    return (int)index;
+#else
+    if ((uint32_t)a != 0) {
+        _BitScanForward(&index, (unsigned int)a);
+        return (int)index;
+    }
+    _BitScanForward(&index, (unsigned int)(a >> 32));
+    return (int)index + 32;
+#endif
+#else
     return __builtin_ctzll(a);
+#endif
 }
 
 struct __attribute__((packed)) packed_u64 {
