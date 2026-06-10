@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../core/source_catalog.dart';
+import '../../domain/runtime/runtime_storage_policy.dart';
 
 enum SearchStrategy { preferRemote, preferLocal, localOnly, remoteOnly }
 
@@ -193,8 +194,8 @@ class SettingsProvider extends ChangeNotifier {
   String _recordingDirBookmark = '';
   String get recordingDirBookmark => _recordingDirBookmark;
 
-  /// 边播边缓存（透明缓存）开关：开启后 mpv 会把播放流写入磁盘缓存目录，
-  /// 用于加速重播和提升网络抖动场景下的稳定性
+  /// Runtime 渐进缓存开关：开启后 runtime 会把播放流复用到本地缓存目录，
+  /// 用于加速重播并减少网络抖动场景下的重复下载
   bool _playbackCacheEnabled = false;
   bool get playbackCacheEnabled => _playbackCacheEnabled;
 
@@ -203,6 +204,18 @@ class SettingsProvider extends ChangeNotifier {
   String get playbackCacheDir => _playbackCacheDir;
   String _playbackCacheDirBookmark = '';
   String get playbackCacheDirBookmark => _playbackCacheDirBookmark;
+
+  RuntimeStoragePolicy get runtimeStoragePolicy => RuntimeStoragePolicy(
+        progressiveCacheEnabled: _playbackCacheEnabled,
+        cacheDirectory: RuntimeManagedDirectoryPolicy(
+          customPath: _playbackCacheDir,
+          bookmark: _playbackCacheDirBookmark,
+        ),
+        recordingDirectory: RuntimeManagedDirectoryPolicy(
+          customPath: _recordingDir,
+          bookmark: _recordingDirBookmark,
+        ),
+      );
 
   List<RssFeedConfig> _rssFeeds = _defaultRssFeeds();
   List<RssFeedConfig> get rssFeeds => List.unmodifiable(_rssFeeds);
@@ -411,14 +424,10 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   void setRecordingDir(String value) {
-    _recordingDir = value.trim();
-    _recordingDirBookmark = '';
-    notifyListeners();
-    unawaited(_writeSetting(_recordingDirKey, _recordingDir));
-    unawaited(_writeSetting(_recordingDirBookmarkKey, _recordingDirBookmark));
+    setRuntimeRecordingDirSelection(value.trim(), bookmark: '');
   }
 
-  void setRecordingDirSelection(String path, {String bookmark = ''}) {
+  void setRuntimeRecordingDirSelection(String path, {String bookmark = ''}) {
     _recordingDir = path.trim();
     _recordingDirBookmark = bookmark.trim();
     notifyListeners();
@@ -426,23 +435,29 @@ class SettingsProvider extends ChangeNotifier {
     unawaited(_writeSetting(_recordingDirBookmarkKey, _recordingDirBookmark));
   }
 
+  void setRecordingDirSelection(String path, {String bookmark = ''}) {
+    setRuntimeRecordingDirSelection(path, bookmark: bookmark);
+  }
+
   void setPlaybackCacheEnabled(bool value) {
+    setRuntimeProgressiveCacheEnabled(value);
+  }
+
+  void setRuntimeProgressiveCacheEnabled(bool value) {
     _playbackCacheEnabled = value;
     notifyListeners();
     unawaited(_writeSetting(_playbackCacheEnabledKey, value.toString()));
   }
 
   void setPlaybackCacheDir(String value) {
-    _playbackCacheDir = value.trim();
-    _playbackCacheDirBookmark = '';
-    notifyListeners();
-    unawaited(_writeSetting(_playbackCacheDirKey, _playbackCacheDir));
-    unawaited(
-      _writeSetting(_playbackCacheDirBookmarkKey, _playbackCacheDirBookmark),
-    );
+    setRuntimeCacheDirSelection(value.trim(), bookmark: '');
   }
 
   void setPlaybackCacheDirSelection(String path, {String bookmark = ''}) {
+    setRuntimeCacheDirSelection(path, bookmark: bookmark);
+  }
+
+  void setRuntimeCacheDirSelection(String path, {String bookmark = ''}) {
     _playbackCacheDir = path.trim();
     _playbackCacheDirBookmark = bookmark.trim();
     notifyListeners();

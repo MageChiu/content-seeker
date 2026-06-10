@@ -29,6 +29,12 @@ std::string get_nested(const std::string& json, const std::string& path);
 /// 提取 JSON 数组中每个对象的指定字段
 std::vector<std::string> get_array_field(const std::string& json_array, const std::string& field);
 
+/// 从 JSON 对象中提取顶层 string -> string 键值对
+std::map<std::string, std::string> get_object_string_map(
+    const std::string& json,
+    const std::string& key
+);
+
 /// 构建简单的 JSON 对象字符串
 std::string build_object(const std::map<std::string, std::string>& fields);
 

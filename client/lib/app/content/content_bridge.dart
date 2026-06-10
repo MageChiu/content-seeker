@@ -1,6 +1,4 @@
-import '../../core/source_catalog.dart';
 import '../../domain/download/download_request.dart';
-import '../../models/play_request.dart';
 import '../../models/search_result.dart';
 import 'content_request.dart';
 
@@ -39,35 +37,6 @@ extension SearchResultContentBridge on SearchResult {
   }
 }
 
-extension PlayRequestContentBridge on PlayRequest {
-  ContentRequest toContentRequest() {
-    final primaryUri = _parseUri(url);
-    return ContentRequest(
-      intent: ContentIntent.playback,
-      contentId: contentId.trim(),
-      sourceId: sourceHint.trim().toLowerCase(),
-      title: title,
-      mediaType: mediaType == PlayMediaType.audio
-          ? ContentMediaType.audio
-          : ContentMediaType.video,
-      primaryUri: primaryUri,
-      fallbackUri: primaryUri,
-      sourceLabel: sourceLabel.isNotEmpty
-          ? sourceLabel
-          : sourceDescriptor(sourceHint).label,
-      thumbnailUrl: thumbnailUrl,
-      durationSeconds: durationSeconds,
-      description: description,
-      filename: _suggestedFilename(
-        explicit: '',
-        title: title,
-        contentId: contentId,
-        uri: primaryUri,
-      ),
-    );
-  }
-}
-
 extension DownloadRequestContentBridge on DownloadRequest {
   ContentRequest toContentRequest() {
     return ContentRequest(
@@ -90,25 +59,6 @@ extension DownloadRequestContentBridge on DownloadRequest {
 }
 
 extension ContentRequestLegacyBridge on ContentRequest {
-  PlayRequest toLegacyPlayRequest() {
-    final uri = primaryUri ?? fallbackUri;
-    if (uri == null || uri.toString().trim().isEmpty) {
-      throw StateError('当前内容缺少可播放地址，无法桥接到旧播放请求。');
-    }
-
-    return PlayRequest(
-      url: uri.toString(),
-      title: title.isNotEmpty ? title : stableId,
-      mediaType: _toLegacyPlayMediaType(mediaType),
-      sourceHint: sourceId,
-      contentId: contentId,
-      thumbnailUrl: thumbnailUrl,
-      durationSeconds: durationSeconds,
-      description: description,
-      sourceLabel: sourceLabel,
-    );
-  }
-
   DownloadRequest toLegacyDownloadRequest() {
     final uri = primaryUri ?? fallbackUri;
     if (uri == null) {
@@ -147,16 +97,6 @@ ContentMediaType _inferContentMediaType(String filename, Uri uri) {
     return ContentMediaType.video;
   }
   return ContentMediaType.unknown;
-}
-
-PlayMediaType _toLegacyPlayMediaType(ContentMediaType mediaType) {
-  switch (mediaType) {
-    case ContentMediaType.audio:
-      return PlayMediaType.audio;
-    case ContentMediaType.unknown:
-    case ContentMediaType.video:
-      return PlayMediaType.video;
-  }
 }
 
 String _suggestedFilename({

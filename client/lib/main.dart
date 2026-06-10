@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'app/bootstrap/app_bootstrap.dart';
 import 'app/download/download_coordinator.dart';
 import 'app/feature_flags/feature_registry.dart';
-import 'app/playback/playback_coordinator.dart';
 import 'features/reader/reader_provider.dart';
 import 'features/search/search_provider.dart';
 import 'features/search/search_page.dart';
@@ -67,9 +66,6 @@ class ContentSeekerApp extends StatelessWidget {
         Provider<FeatureRegistry>.value(
             value: bootstrap.container.featureRegistry),
         ChangeNotifierProvider<SettingsProvider>.value(value: settingsProvider),
-        ChangeNotifierProvider<PlaybackCoordinator>.value(
-          value: bootstrap.container.playbackCoordinator,
-        ),
         ChangeNotifierProvider<DownloadCoordinator>.value(
           value: bootstrap.container.downloadCoordinator,
         ),

@@ -14,6 +14,12 @@ set(SEEKER_SOURCES
     src/core/seeker_context.cpp
     src/core/thread_pool.cpp
     src/core/callback_dispatcher.cpp
+    src/runtime/asset_catalog.cpp
+    src/runtime/cache_store.cpp
+    src/runtime/download_planner.cpp
+    src/runtime/runtime_manager.cpp
+    src/runtime/transfer_manager.cpp
+    src/player/backend_adapter_mpv.cpp
     src/extractor/extractor_registry.cpp
     src/extractor/plugins/bilibili_plugin.cpp
     src/extractor/plugins/youtube_plugin.cpp
@@ -94,6 +100,7 @@ if(SEEKER_ENABLE_QUICKJS)
     target_compile_definitions(seeker PRIVATE
         _GNU_SOURCE
         CONFIG_VERSION="${QUICKJS_VERSION}"
+        CONFIG_BIGNUM
     )
 endif()
 

@@ -16,12 +16,68 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: Consumer<SettingsProvider>(
-        builder: (context, settings, _) {
-          return ListView(
-            padding: const EdgeInsets.all(16),
+    return DefaultTabController(
+      length: 5,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('设置'),
+          bottom: const TabBar(
+            isScrollable: true,
+            tabs: [
+              Tab(text: '搜索源'),
+              Tab(text: 'RSS 阅读源'),
+              Tab(text: '播放偏好'),
+              Tab(text: '存储目录'),
+              Tab(text: '本地 LLM'),
+            ],
+          ),
+        ),
+        body: Consumer<SettingsProvider>(
+          builder: (context, settings, _) {
+            return TabBarView(
+              children: [
+                _buildSearchTab(context, settings),
+                _buildRssTab(context, settings),
+                _buildPlaybackTab(context, settings),
+                _buildStorageTab(context, settings),
+                _buildLlmTab(context, settings),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchTab(BuildContext context, SettingsProvider settings) {
+    final videoSources = settings.availableSources
+        .where((d) => d.supportsVideo)
+        .toList();
+    final audioSources = settings.availableSources
+        .where((d) => d.supportsAudio)
+        .toList();
+    final otherSources = settings.availableSources
+        .where((d) => !d.supportsVideo && !d.supportsAudio)
+        .toList();
+
+    final mediaTabs = <Tab>[
+      Tab(text: '视频源 (${videoSources.length})'),
+      Tab(text: '音频源 (${audioSources.length})'),
+      if (otherSources.isNotEmpty) Tab(text: '其它源 (${otherSources.length})'),
+    ];
+    final mediaViews = <Widget>[
+      _buildSourceList(context, settings, videoSources),
+      _buildSourceList(context, settings, audioSources),
+      if (otherSources.isNotEmpty)
+        _buildSourceList(context, settings, otherSources),
+    ];
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const _SectionHeader(title: '搜索策略'),
               DropdownButtonFormField<SearchStrategy>(
@@ -54,321 +110,376 @@ class SettingsPage extends StatelessWidget {
                   }
                 },
               ),
-              const SizedBox(height: 8),
-              Text(
-                '当前设置页只展示 client 内真正可用的本地搜索源。',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const Divider(height: 32),
+              const SizedBox(height: 12),
               const _SectionHeader(title: '内容源'),
               Text(
-                '如果某个源在 client 内没有本地搜索实现，它不会出现在这里。',
+                '内容源按媒体类型分组，只展示 client 内真正可用的本地搜索源。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 8),
-              for (final descriptor in settings.availableSources) ...[
-                _SourceTile(
-                  descriptor: descriptor,
-                  config: settings.sourceConfigs[descriptor.key]!,
-                  isLocalReady: settings.isLocalSourceReady(descriptor.key),
-                  capabilitySummary:
-                      settings.sourceSearchCapabilitySummary(descriptor.key),
-                  onEnabledChanged: (value) =>
-                      settings.setSourceEnabled(descriptor.key, value),
-                  onCredentialChanged: descriptor.requiresLocalApiKey
-                      ? (value) =>
-                          settings.setSourceApiKey(descriptor.key, value)
-                      : null,
-                  onCredentialFieldChanged: (credKey, value) =>
-                      settings.setSourceCredential(
-                          descriptor.key, credKey, value),
-                  onCustomBaseUrlChanged: descriptor.supportsCustomBaseUrl
-                      ? (value) =>
-                          settings.setSourceCustomBaseUrl(descriptor.key, value)
-                      : null,
+            ],
+          ),
+        ),
+        Expanded(
+          child: DefaultTabController(
+            length: mediaTabs.length,
+            child: Column(
+              children: [
+                TabBar(
+                  isScrollable: true,
+                  tabs: mediaTabs,
+                ),
+                Expanded(
+                  child: TabBarView(children: mediaViews),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSourceList(
+    BuildContext context,
+    SettingsProvider settings,
+    List<ContentSourceDescriptor> sources,
+  ) {
+    if (sources.isEmpty) {
+      return Center(
+        child: Text(
+          '该分组暂无可用的本地搜索源',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        for (final descriptor in sources) ...[
+          _SourceTile(
+            descriptor: descriptor,
+            config: settings.sourceConfigs[descriptor.key]!,
+            isLocalReady: settings.isLocalSourceReady(descriptor.key),
+            capabilitySummary:
+                settings.sourceSearchCapabilitySummary(descriptor.key),
+            onEnabledChanged: (value) =>
+                settings.setSourceEnabled(descriptor.key, value),
+            onCredentialChanged: descriptor.requiresLocalApiKey
+                ? (value) => settings.setSourceApiKey(descriptor.key, value)
+                : null,
+            onCredentialFieldChanged: (credKey, value) =>
+                settings.setSourceCredential(descriptor.key, credKey, value),
+            onCustomBaseUrlChanged: descriptor.supportsCustomBaseUrl
+                ? (value) =>
+                    settings.setSourceCustomBaseUrl(descriptor.key, value)
+                : null,
+          ),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRssTab(BuildContext context, SettingsProvider settings) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const _SectionHeader(title: 'RSS 阅读源'),
+        Text(
+          '这里维护可订阅、可搜索的 RSS 列表，后续新增阅读源只需要继续添加即可。',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        _RssFeedSection(settings: settings),
+      ],
+    );
+  }
+
+  Widget _buildPlaybackTab(BuildContext context, SettingsProvider settings) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const _SectionHeader(title: '播放偏好'),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '默认倍速 ${_formatPlaybackRate(settings.playbackRate)}',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                Slider(
+                  value: settings.playbackRate,
+                  min: 0.5,
+                  max: 2.0,
+                  divisions: 6,
+                  label: _formatPlaybackRate(settings.playbackRate),
+                  onChanged: settings.setPlaybackRate,
                 ),
                 const SizedBox(height: 8),
-              ],
-              const Divider(height: 32),
-              const _SectionHeader(title: 'RSS 阅读源'),
-              Text(
-                '这里维护可订阅、可搜索的 RSS 列表，后续新增阅读源只需要继续添加即可。',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              _RssFeedSection(settings: settings),
-              const Divider(height: 32),
-              const _SectionHeader(title: '播放偏好'),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '默认倍速 ${_formatPlaybackRate(settings.playbackRate)}',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      Slider(
-                        value: settings.playbackRate,
-                        min: 0.5,
-                        max: 2.0,
-                        divisions: 6,
-                        label: _formatPlaybackRate(settings.playbackRate),
-                        onChanged: settings.setPlaybackRate,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '默认音量 ${settings.playbackVolume.round()}%',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      Slider(
-                        value: settings.playbackVolume,
-                        min: 0,
-                        max: 100,
-                        divisions: 20,
-                        label: '${settings.playbackVolume.round()}%',
-                        onChanged: settings.setPlaybackVolume,
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<int>(
-                        initialValue: settings.playbackSeekSeconds,
-                        decoration: const InputDecoration(
-                          labelText: '快进 / 快退步长',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 5, child: Text('5 秒')),
-                          DropdownMenuItem(value: 10, child: Text('10 秒')),
-                          DropdownMenuItem(value: 15, child: Text('15 秒')),
-                          DropdownMenuItem(value: 30, child: Text('30 秒')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            settings.setPlaybackSeekSeconds(value);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
+                Text(
+                  '默认音量 ${settings.playbackVolume.round()}%',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-              ),
-              const Divider(height: 32),
-              const _SectionHeader(title: '边播边缓存'),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('启用边播边缓存'),
-                        subtitle: const Text(
-                          '播放时把网络流写入本地，加速重播 + 提升弱网/抖动场景下的稳定性',
-                        ),
-                        value: settings.playbackCacheEnabled,
-                        onChanged: settings.setPlaybackCacheEnabled,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '缓存目录',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        settings.playbackCacheDir.isEmpty
-                            ? '默认：应用支持目录下的 content_seeker_cache/（沙箱内可写）'
-                            : settings.playbackCacheDir,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      if (_isMacOSLegacyPath(
-                        settings.playbackCacheDir,
-                        settings.playbackCacheDirBookmark,
-                      )) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          '当前是旧配置/手动输入路径，未保存 macOS 授权信息。'
-                          '播放时会自动回退到应用内缓存目录，请重新用“浏览选择目录”选择一次。',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Theme.of(context).colorScheme.error,
-                                  ),
-                        ),
-                      ],
-                      if (settings.playbackCacheDir.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        _MacOSDirectoryStatus(
-                          path: settings.playbackCacheDir,
-                          bookmark: settings.playbackCacheDirBookmark,
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            icon: const Icon(Icons.edit_outlined),
-                            label: const Text('自定义缓存目录'),
-                            onPressed: () =>
-                                _showCacheDirDialog(context, settings),
-                          ),
-                          if (settings.playbackCacheDir.isNotEmpty)
-                            TextButton(
-                              onPressed: () => settings.setPlaybackCacheDir(''),
-                              child: const Text('恢复默认'),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'macOS 沙箱模式下，强烈建议使用「浏览选择目录」让系统授予持久写入权限，'
-                        '否则手动输入的 ~/Downloads/ 等路径可能无写入权限。',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).hintColor,
-                            ),
-                      ),
-                    ],
-                  ),
+                Slider(
+                  value: settings.playbackVolume,
+                  min: 0,
+                  max: 100,
+                  divisions: 20,
+                  label: '${settings.playbackVolume.round()}%',
+                  onChanged: settings.setPlaybackVolume,
                 ),
-              ),
-              const Divider(height: 32),
-              const _SectionHeader(title: '边播边存（手动录制）'),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '录制保存目录',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        settings.recordingDir.isEmpty
-                            ? '默认：应用文档目录下的 content_seeker_recordings/'
-                            : settings.recordingDir,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      if (_isMacOSLegacyPath(
-                        settings.recordingDir,
-                        settings.recordingDirBookmark,
-                      )) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          '当前是旧配置/手动输入路径，未保存 macOS 授权信息。'
-                          '录制时会自动回退到应用内目录，请重新用“浏览选择目录”选择一次。',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Theme.of(context).colorScheme.error,
-                                  ),
-                        ),
-                      ],
-                      if (settings.recordingDir.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        _MacOSDirectoryStatus(
-                          path: settings.recordingDir,
-                          bookmark: settings.recordingDirBookmark,
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            icon: const Icon(Icons.edit_outlined),
-                            label: const Text('自定义路径'),
-                            onPressed: () =>
-                                _showRecordingDirDialog(context, settings),
-                          ),
-                          if (settings.recordingDir.isNotEmpty)
-                            TextButton(
-                              onPressed: () => settings.setRecordingDir(''),
-                              child: const Text('恢复默认'),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '在播放页点击红色录制按钮可手动保存当前正在播放的视频。'
-                        '推荐通过「浏览选择目录」选择 ~/Movies/ 内的子目录，沙箱会自动授权写入。',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).hintColor,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const Divider(height: 32),
-              const _SectionHeader(title: '本地 LLM 配置'),
-              SwitchListTile(
-                title: const Text('启用本地 LLM Key'),
-                subtitle: const Text('该配置仅为本地搜索增强预留，不影响本地源配置'),
-                value: settings.useLocalLlm,
-                onChanged: settings.setUseLocalLlm,
-              ),
-              if (settings.useLocalLlm) ...[
-                DropdownButtonFormField<LlmProviderType>(
-                  initialValue: settings.llmProvider,
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  initialValue: settings.playbackSeekSeconds,
                   decoration: const InputDecoration(
-                    labelText: 'LLM 提供商',
+                    labelText: '快进 / 快退步长',
                     border: OutlineInputBorder(),
                   ),
                   items: const [
-                    DropdownMenuItem(
-                      value: LlmProviderType.openai,
-                      child: Text('OpenAI'),
-                    ),
-                    DropdownMenuItem(
-                      value: LlmProviderType.deepseek,
-                      child: Text('DeepSeek'),
-                    ),
-                    DropdownMenuItem(
-                      value: LlmProviderType.ollama,
-                      child: Text('Ollama'),
-                    ),
-                    DropdownMenuItem(
-                      value: LlmProviderType.custom,
-                      child: Text('自定义兼容接口'),
-                    ),
+                    DropdownMenuItem(value: 5, child: Text('5 秒')),
+                    DropdownMenuItem(value: 10, child: Text('10 秒')),
+                    DropdownMenuItem(value: 15, child: Text('15 秒')),
+                    DropdownMenuItem(value: 30, child: Text('30 秒')),
                   ],
                   onChanged: (value) {
                     if (value != null) {
-                      settings.setLlmProvider(value);
+                      settings.setPlaybackSeekSeconds(value);
                     }
                   },
                 ),
-                const SizedBox(height: 12),
-                _TextFieldTile(
-                  label: 'Base URL',
-                  hint: _llmBaseUrlHint(settings.llmProvider),
-                  initialValue: settings.llmBaseUrl,
-                  onChanged: settings.setLlmBaseUrl,
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStorageTab(BuildContext context, SettingsProvider settings) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const _SectionHeader(title: 'Runtime 存储策略'),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启用 Runtime 渐进缓存'),
+                  subtitle: const Text(
+                    '让 runtime 在播放网络流时复用本地缓存，减少重复下载并提升弱网场景稳定性',
+                  ),
+                  value: settings.playbackCacheEnabled,
+                  onChanged: settings.setRuntimeProgressiveCacheEnabled,
                 ),
-                const SizedBox(height: 12),
-                _TextFieldTile(
-                  label: '模型名',
-                  hint: _llmModelHint(settings.llmProvider),
-                  initialValue: settings.llmModel,
-                  onChanged: settings.setLlmModel,
+                const SizedBox(height: 8),
+                Text(
+                  '缓存目录',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-                const SizedBox(height: 12),
-                _TextFieldTile(
-                  label: _llmApiKeyLabel(settings.llmProvider),
-                  hint: _llmApiKeyHint(settings.llmProvider),
-                  initialValue: settings.llmApiKey,
-                  onChanged: settings.setLlmApiKey,
-                  obscure: settings.llmProvider != LlmProviderType.ollama,
+                const SizedBox(height: 4),
+                Text(
+                  settings.playbackCacheDir.isEmpty
+                      ? '默认：应用支持目录下的 content_seeker_cache/（沙箱内可写）'
+                      : settings.playbackCacheDir,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (_isMacOSLegacyPath(
+                  settings.playbackCacheDir,
+                  settings.playbackCacheDirBookmark,
+                )) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '当前是旧配置/手动输入路径，未保存 macOS 授权信息。'
+                    '播放时会自动回退到应用内缓存目录，请重新用“浏览选择目录”选择一次。',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                  ),
+                ],
+                if (settings.playbackCacheDir.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _MacOSDirectoryStatus(
+                    path: settings.playbackCacheDir,
+                    bookmark: settings.playbackCacheDirBookmark,
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('自定义 Runtime 缓存目录'),
+                      onPressed: () => _showCacheDirDialog(context, settings),
+                    ),
+                    if (settings.playbackCacheDir.isNotEmpty)
+                      TextButton(
+                        onPressed: () =>
+                            settings.setRuntimeCacheDirSelection(''),
+                        child: const Text('恢复默认'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'macOS 沙箱模式下，强烈建议使用「浏览选择目录」让系统授予持久写入权限，'
+                  '否则手动输入的 ~/Downloads/ 等路径可能无写入权限。',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).hintColor,
+                      ),
                 ),
               ],
+            ),
+          ),
+        ),
+        const Divider(height: 32),
+        const _SectionHeader(title: 'Runtime 录制目录'),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '录制保存目录',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  settings.recordingDir.isEmpty
+                      ? '默认：应用文档目录下的 content_seeker_recordings/'
+                      : settings.recordingDir,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (_isMacOSLegacyPath(
+                  settings.recordingDir,
+                  settings.recordingDirBookmark,
+                )) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '当前是旧配置/手动输入路径，未保存 macOS 授权信息。'
+                    '录制时会自动回退到应用内目录，请重新用“浏览选择目录”选择一次。',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                  ),
+                ],
+                if (settings.recordingDir.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _MacOSDirectoryStatus(
+                    path: settings.recordingDir,
+                    bookmark: settings.recordingDirBookmark,
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('自定义 Runtime 录制目录'),
+                      onPressed: () =>
+                          _showRecordingDirDialog(context, settings),
+                    ),
+                    if (settings.recordingDir.isNotEmpty)
+                      TextButton(
+                        onPressed: () =>
+                            settings.setRuntimeRecordingDirSelection(''),
+                        child: const Text('恢复默认'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '这里定义的是 runtime 在需要落盘录制数据时使用的目标目录。'
+                  '推荐通过「浏览选择目录」选择 ~/Movies/ 内的子目录，沙箱会自动授权写入。',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).hintColor,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLlmTab(BuildContext context, SettingsProvider settings) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const _SectionHeader(title: '本地 LLM 配置'),
+        SwitchListTile(
+          title: const Text('启用本地 LLM Key'),
+          subtitle: const Text('该配置仅为本地搜索增强预留，不影响本地源配置'),
+          value: settings.useLocalLlm,
+          onChanged: settings.setUseLocalLlm,
+        ),
+        if (settings.useLocalLlm) ...[
+          DropdownButtonFormField<LlmProviderType>(
+            initialValue: settings.llmProvider,
+            decoration: const InputDecoration(
+              labelText: 'LLM 提供商',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: LlmProviderType.openai,
+                child: Text('OpenAI'),
+              ),
+              DropdownMenuItem(
+                value: LlmProviderType.deepseek,
+                child: Text('DeepSeek'),
+              ),
+              DropdownMenuItem(
+                value: LlmProviderType.ollama,
+                child: Text('Ollama'),
+              ),
+              DropdownMenuItem(
+                value: LlmProviderType.custom,
+                child: Text('自定义兼容接口'),
+              ),
             ],
-          );
-        },
-      ),
+            onChanged: (value) {
+              if (value != null) {
+                settings.setLlmProvider(value);
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          _TextFieldTile(
+            label: 'Base URL',
+            hint: _llmBaseUrlHint(settings.llmProvider),
+            initialValue: settings.llmBaseUrl,
+            onChanged: settings.setLlmBaseUrl,
+          ),
+          const SizedBox(height: 12),
+          _TextFieldTile(
+            label: '模型名',
+            hint: _llmModelHint(settings.llmProvider),
+            initialValue: settings.llmModel,
+            onChanged: settings.setLlmModel,
+          ),
+          const SizedBox(height: 12),
+          _TextFieldTile(
+            label: _llmApiKeyLabel(settings.llmProvider),
+            hint: _llmApiKeyHint(settings.llmProvider),
+            initialValue: settings.llmApiKey,
+            onChanged: settings.setLlmApiKey,
+            obscure: settings.llmProvider != LlmProviderType.ollama,
+          ),
+        ],
+      ],
     );
   }
 }
@@ -916,7 +1027,7 @@ Future<void> _showRecordingDirDialog(
   );
   if (picked != null && context.mounted) {
     if (picked.path.isEmpty) {
-      settings.setRecordingDirSelection('', bookmark: '');
+        settings.setRuntimeRecordingDirSelection('', bookmark: '');
       return;
     }
     final ok = await _verifyAndApplyDir(
@@ -925,7 +1036,7 @@ Future<void> _showRecordingDirDialog(
       bookmark: picked.bookmark,
     );
     if (ok) {
-      settings.setRecordingDirSelection(
+        settings.setRuntimeRecordingDirSelection(
         picked.path,
         bookmark: picked.bookmark,
       );
@@ -945,7 +1056,7 @@ Future<void> _showCacheDirDialog(
   );
   if (picked != null && context.mounted) {
     if (picked.path.isEmpty) {
-      settings.setPlaybackCacheDirSelection('', bookmark: '');
+        settings.setRuntimeCacheDirSelection('', bookmark: '');
       return;
     }
     final ok = await _verifyAndApplyDir(
@@ -954,7 +1065,7 @@ Future<void> _showCacheDirDialog(
       bookmark: picked.bookmark,
     );
     if (ok) {
-      settings.setPlaybackCacheDirSelection(
+        settings.setRuntimeCacheDirSelection(
         picked.path,
         bookmark: picked.bookmark,
       );

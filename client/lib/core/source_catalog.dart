@@ -73,7 +73,7 @@ const Map<String, ContentSourceDescriptor> kContentSourceCatalog = {
     requiresLocalApiKey: true,
     enabledByDefault: true,
     supportsVideo: true,
-    supportsAudio: true,
+    supportsAudio: false,
     localSearchDescription: '本地搜索需要 YouTube Data API Key',
     remoteSearchDescription: '远程搜索由服务端统一聚合',
     credentialHints: [
@@ -290,6 +290,30 @@ const Map<String, ContentSourceDescriptor> kContentSourceCatalog = {
     remoteSearchDescription: '当前不支持远程搜索',
     credentialHints: [
       CredentialHint(credKey: 'apiKey', label: 'Client ID', hint: '输入 Jamendo Client ID'),
+    ],
+  ),
+  'audius': ContentSourceDescriptor(
+    key: 'audius',
+    label: 'Audius',
+    group: ContentSourceGroup.expansion,
+    region: SourceRegion.international,
+    accessMode: SourceAccessMode.publicApi,
+    stabilityTier: SourceStabilityTier.stable,
+    supportsLocalSearch: true,
+    supportsRemoteSearch: false,
+    requiresLocalApiKey: false,
+    enabledByDefault: false,
+    supportsVideo: false,
+    supportsAudio: true,
+    localSearchDescription: '客户端直连 Audius 公开音乐搜索与流式播放接口，可选填写 API Key 提升配额',
+    remoteSearchDescription: '当前不支持远程搜索',
+    credentialHints: [
+      CredentialHint(
+        credKey: 'apiKey',
+        label: 'API Key',
+        hint: '可选：填写 Audius API Key 提升请求配额',
+        obscure: false,
+      ),
     ],
   ),
 };

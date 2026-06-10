@@ -60,6 +60,9 @@ class SearchProvider extends ChangeNotifier {
   bool _localLlmRewriteApplied = false;
   bool _localLlmRerankApplied = false;
   int _localLlmSummaryCount = 0;
+  Map<String, int> _lastSourceResultCounts = const {};
+  int _lastRawResultCount = 0;
+  int _lastDedupedCount = 0;
 
   List<SearchResult> get results => _results;
   bool get loading => _loading;
@@ -71,6 +74,10 @@ class SearchProvider extends ChangeNotifier {
   bool get localLlmRewriteApplied => _localLlmRewriteApplied;
   bool get localLlmRerankApplied => _localLlmRerankApplied;
   int get localLlmSummaryCount => _localLlmSummaryCount;
+  Map<String, int> get lastSourceResultCounts =>
+      Map<String, int>.unmodifiable(_lastSourceResultCounts);
+  int get lastRawResultCount => _lastRawResultCount;
+  int get lastDedupedCount => _lastDedupedCount;
 
   SearchProvider({
     ContentSearchApplication? contentSearchApplication,
@@ -113,6 +120,9 @@ class SearchProvider extends ChangeNotifier {
     _localLlmRewriteApplied = false;
     _localLlmRerankApplied = false;
     _localLlmSummaryCount = 0;
+    _lastSourceResultCounts = const {};
+    _lastRawResultCount = 0;
+    _lastDedupedCount = 0;
     notifyListeners();
 
     try {
@@ -162,19 +172,15 @@ class SearchProvider extends ChangeNotifier {
         mediaTypeFilter: _mediaTypeFilter,
       );
 
-      // 去重
-      final seen = <String>{};
-      _results = merged.where((r) {
-        final key = '${r.source}_${r.id}';
-        return seen.add(key);
-      }).toList();
+      _lastRawResultCount = merged.length;
+      _results = _dedupeResults(merged);
+      _lastDedupedCount = _results.length;
 
-      // 按源统计结果分布
       final sourceDistribution = <String, int>{};
-      for (final r in _results) {
-        sourceDistribution[r.source] =
-            (sourceDistribution[r.source] ?? 0) + 1;
+      for (final r in merged) {
+        sourceDistribution[r.source] = (sourceDistribution[r.source] ?? 0) + 1;
       }
+      _lastSourceResultCounts = sourceDistribution;
 
       // #region debug-point D:search-merged
       _debugReportSearchProvider('D', 'search_provider.dart:search:merged',
@@ -565,8 +571,21 @@ class SearchProvider extends ChangeNotifier {
     return a.title.compareTo(b.title);
   }
 
+  List<SearchResult> _dedupeResults(List<SearchResult> merged) {
+    final bestByKey = <String, SearchResult>{};
+    for (final result in merged) {
+      final key = _dedupeKeyForResult(result);
+      final existing = bestByKey[key];
+      if (existing == null || _compareResults(result, existing) < 0) {
+        bestByKey[key] = result;
+      }
+    }
+    return bestByKey.values.toList(growable: false);
+  }
+
   int _scoreResult(SearchResult result) {
     var score = 0;
+    final normalizedQuery = _normalizeMatchText(_lastQuery);
 
     switch (result.sourceTier) {
       case SourceTier.officialApi:
@@ -583,11 +602,11 @@ class SearchProvider extends ChangeNotifier {
 
     switch (result.availability) {
       case ResultAvailability.available:
-        score += 10;
+        score += 12;
       case ResultAvailability.preview:
-        score += 6;
+        score += 4;
       case ResultAvailability.indexedOnly:
-        score += 1;
+        score += 0;
     }
 
     switch (result.playbackKind) {
@@ -630,11 +649,14 @@ class SearchProvider extends ChangeNotifier {
         case MediaSubtype.video:
           break;
       }
-      if (result.source == 'itunes' || result.source == 'jamendo') {
-        score += 10;
-      }
-      if (result.source == 'deezer' || result.source == 'internet_archive') {
+      score += _audioSourceBonus(result);
+      if (result.availability == ResultAvailability.available) {
         score += 8;
+      }
+      if (result.availability == ResultAvailability.preview &&
+          result.durationSeconds > 0 &&
+          result.durationSeconds <= 35) {
+        score -= 2;
       }
     }
 
@@ -653,7 +675,147 @@ class SearchProvider extends ChangeNotifier {
       }
     }
 
+    score += _queryMatchScore(result, normalizedQuery);
     return score;
+  }
+
+  int _audioSourceBonus(SearchResult result) {
+    switch (result.source) {
+      case 'jamendo':
+      case 'audius':
+        return 12;
+      case 'itunes':
+        return 8;
+      case 'deezer':
+        return 7;
+      case 'internet_archive':
+        return 4;
+      default:
+        return 0;
+    }
+  }
+
+  int _queryMatchScore(SearchResult result, String normalizedQuery) {
+    if (normalizedQuery.isEmpty) {
+      return 0;
+    }
+
+    final title = _normalizeMatchText(_titleCore(result));
+    final artist = _normalizeMatchText(result.artistOrAuthor);
+    final album = _normalizeMatchText(result.albumOrSeries);
+    final combined = _normalizeMatchText(
+      '${_titleCore(result)} ${result.artistOrAuthor} ${result.albumOrSeries}',
+    );
+    var score = 0;
+
+    if (title == normalizedQuery) {
+      score += 50;
+    } else if (combined == normalizedQuery) {
+      score += 44;
+    } else if (title.contains(normalizedQuery)) {
+      score += 30;
+    } else if (combined.contains(normalizedQuery)) {
+      score += 24;
+    }
+
+    final parts = _splitCompoundQueryParts(normalizedQuery);
+    if (parts.length == 2) {
+      final left = parts[0];
+      final right = parts[1];
+      if ((title.contains(left) && artist.contains(right)) ||
+          (title.contains(right) && artist.contains(left))) {
+        score += 28;
+      }
+    }
+
+    final tokens = normalizedQuery
+        .split(' ')
+        .where((item) => item.trim().length >= 2)
+        .toList(growable: false);
+    for (final token in tokens) {
+      if (title.contains(token)) {
+        score += 6;
+      } else if (artist.contains(token)) {
+        score += 5;
+      } else if (album.contains(token)) {
+        score += 2;
+      }
+    }
+
+    if (_mediaTypeFilter == MediaType.audio &&
+        result.mediaSubtype == MediaSubtype.musicTrack &&
+        artist.isNotEmpty &&
+        title.isNotEmpty) {
+      score += 6;
+    }
+    return score;
+  }
+
+  String _dedupeKeyForResult(SearchResult result) {
+    if (!result.isMediaResult) {
+      return '${result.source}_${result.id}';
+    }
+
+    final title = _normalizeMatchText(_titleCore(result));
+    final artist = _normalizeMatchText(result.artistOrAuthor);
+    if (title.length < 2) {
+      return '${result.source}_${result.id}';
+    }
+    if (result.mediaType == MediaType.audio && artist.isNotEmpty) {
+      return 'audio::$title::$artist';
+    }
+    return '${result.mediaType.name}::$title';
+  }
+
+  String _titleCore(SearchResult result) {
+    final title = result.title.trim();
+    final artist = result.artistOrAuthor.trim();
+    if (artist.isEmpty) {
+      return title;
+    }
+    final lowerTitle = title.toLowerCase();
+    final lowerArtist = artist.toLowerCase();
+    final suffix = ' - $lowerArtist';
+    if (lowerTitle.endsWith(suffix)) {
+      return title.substring(0, title.length - suffix.length).trim();
+    }
+    return title;
+  }
+
+  String _normalizeMatchText(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[“”"''`]+'), ' ')
+        .replaceAll(RegExp(r'[【】\[\]\(\)]'), ' ')
+        .replaceAll(RegExp(r'[·•_/|:]+'), ' ')
+        .replaceAll(RegExp(r'[—–-]+'), ' ')
+        .replaceAll(
+          RegExp(
+            r'\b(official|audio|lyrics?|lyric|video|live|remix|cover|karaoke|instrumental|version|ver)\b',
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  List<String> _splitCompoundQueryParts(String query) {
+    final separators = <RegExp>[
+      RegExp(r'\s+-\s+'),
+      RegExp(r'\s+by\s+'),
+      RegExp(r'\s+[|/]\s+'),
+    ];
+    for (final separator in separators) {
+      final parts = query
+          .split(separator)
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+      if (parts.length == 2) {
+        return parts;
+      }
+    }
+    return const [];
   }
 
   Future<List<SearchResult>> _runLocalSource(

@@ -3,7 +3,6 @@
 import '../core/content/content.dart';
 import '../core/source_catalog.dart';
 import '../domain/download/download_request.dart';
-import 'play_request.dart';
 
 enum MediaType { video, audio }
 
@@ -362,7 +361,7 @@ class SearchResult {
   String get availabilityLabel {
     switch (availability) {
       case ResultAvailability.available:
-        return '可播放';
+        return '完整可播';
       case ResultAvailability.preview:
         return '预览';
       case ResultAvailability.indexedOnly:
@@ -419,24 +418,6 @@ class SearchResult {
   String? get primaryHighlightTimestampLabel {
     if (highlights.isEmpty) return null;
     return _formatTimestamp(highlights.first.timestampSeconds);
-  }
-
-  /// 将搜索结果转为播放请求
-  /// 这是搜索层到播放层的唯一转换点
-  PlayRequest toPlayRequest() {
-    return PlayRequest(
-      url: playUrl,
-      title: title,
-      mediaType: mediaType == MediaType.video
-          ? PlayMediaType.video
-          : PlayMediaType.audio,
-      sourceHint: sourceKey,
-      contentId: id,
-      thumbnailUrl: thumbnailUrl,
-      durationSeconds: durationSeconds,
-      description: description,
-      sourceLabel: sourceLabel,
-    );
   }
 
   DownloadRequest toDownloadRequest() {
