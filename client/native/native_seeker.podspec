@@ -7,7 +7,10 @@ Pod::Spec.new do |s|
   s.author           = { 'magechiu' => 'magechiu@example.com' }
   s.source           = { :path => '.' }
 
-  s.source_files     = 'include/**/*.h', 'src/**/*.{h,cpp,mm}',
+  s.source_files     = 'include/**/*.h',
+                       'src/**/*.h',
+                       'src/**/*.cpp',
+                       'src/**/*.mm',
                        'third_party/quickjs/quickjs.c',
                        'third_party/quickjs/quickjs.h',
                        'third_party/quickjs/quickjs-atom.h',
@@ -41,6 +44,4 @@ Pod::Spec.new do |s|
   # 排除非 Apple 平台的桩文件（Apple 平台用 muxer_apple.mm，
   # muxer_fmp4.cpp 始终编译作为 fallback）
   s.exclude_files = 'src/utils/http_client_stub.cpp', 'src/utils/muxer_default.cpp'
-
-  s.libraries = 'c++'
 end

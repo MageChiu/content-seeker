@@ -65,7 +65,7 @@ SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   media_kit_libs_macos_video: 85a23e549b5f480e72cae3e5634b5514bc692f65
   media_kit_video: fa6564e3799a0a28bff39442334817088b7ca758
-  native_seeker: a2a6a4c4cd6a5e9ca93085e3b5b9f0ea0a9500ec
+  native_seeker: 93be55876dfd5aeb9d0121d14fe74eb4feeb2f7b
   package_info_plus: f0052d280d17aa382b932f399edf32507174e870
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
   url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd

@@ -8,10 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../app/download/download_coordinator.dart';
+import '../../app/content/content_bridge.dart';
+import '../../app/content/content_request.dart';
 import '../../core/source_catalog.dart';
 import '../../domain/download/download_status.dart';
 import '../../models/search_result.dart';
-import '../../models/play_request.dart';
 import '../download/downloads_page.dart';
 import '../reader/reader_page.dart';
 import '../reader/reader_provider.dart';
@@ -59,6 +60,23 @@ class _SearchPageState extends State<SearchPage> {
   final _focusNode = FocusNode();
   MediaType? _mediaTypeFilter;
   bool _readingOnly = false;
+
+  void _applyFilter({
+    required MediaType? mediaType,
+    required bool readingOnly,
+  }) {
+    setState(() {
+      _mediaTypeFilter = mediaType;
+      _readingOnly = readingOnly;
+    });
+    context
+        .read<SearchProvider>()
+        .setSearchFilter(mediaType: mediaType, readingOnly: readingOnly);
+    // 若已经搜索过，切换标签时直接用新筛选重新出结果
+    if (_controller.text.trim().isNotEmpty) {
+      _onSearch();
+    }
+  }
 
   void _onSearch() {
     final query = _controller.text.trim();
@@ -136,17 +154,21 @@ class _SearchPageState extends State<SearchPage> {
       context,
       MaterialPageRoute(
         builder: (_) => PlayerPage(
-          request: PlayRequest(
-            url: trimmed,
+          request: ContentRequest(
+            intent: ContentIntent.playback,
+            contentId: '',
+            sourceId: '',
             title: Uri.tryParse(trimmed)?.pathSegments.lastOrNull ?? trimmed,
             mediaType: _guessMediaType(trimmed),
+            primaryUri: Uri.tryParse(trimmed),
+            fallbackUri: Uri.tryParse(trimmed),
           ),
         ),
       ),
     );
   }
 
-  PlayMediaType _guessMediaType(String url) {
+  ContentMediaType _guessMediaType(String url) {
     final lower = url.toLowerCase();
     if (lower.contains('.mp3') ||
         lower.contains('.m4a') ||
@@ -154,9 +176,9 @@ class _SearchPageState extends State<SearchPage> {
         lower.contains('.wav') ||
         lower.contains('.flac') ||
         lower.contains('.ogg')) {
-      return PlayMediaType.audio;
+      return ContentMediaType.audio;
     }
-    return PlayMediaType.video;
+    return ContentMediaType.video;
   }
 
   @override
@@ -238,62 +260,37 @@ class _SearchPageState extends State<SearchPage> {
                         label: const Text('全部'),
                         selected: _mediaTypeFilter == null && !_readingOnly,
                         onSelected: (_) {
-                          setState(() {
-                            _mediaTypeFilter = null;
-                            _readingOnly = false;
-                          });
-                          context
-                              .read<SearchProvider>()
-                              .setSearchFilter(
-                                mediaType: null,
-                                readingOnly: false,
-                              );
+                          _applyFilter(mediaType: null, readingOnly: false);
                         },
                       ),
                       ChoiceChip(
                         label: const Text('视频'),
                         selected: _mediaTypeFilter == MediaType.video,
                         onSelected: (selected) {
-                          setState(() {
-                            _mediaTypeFilter =
-                                selected ? MediaType.video : null;
-                            _readingOnly = false;
-                          });
-                          context.read<SearchProvider>().setSearchFilter(
-                                mediaType: selected ? MediaType.video : null,
-                                readingOnly: false,
-                              );
+                          _applyFilter(
+                            mediaType: selected ? MediaType.video : null,
+                            readingOnly: false,
+                          );
                         },
                       ),
                       ChoiceChip(
                         label: const Text('音频'),
                         selected: _mediaTypeFilter == MediaType.audio,
                         onSelected: (selected) {
-                          setState(() {
-                            _mediaTypeFilter =
-                                selected ? MediaType.audio : null;
-                            _readingOnly = false;
-                          });
-                          context.read<SearchProvider>().setSearchFilter(
-                                mediaType: selected ? MediaType.audio : null,
-                                readingOnly: false,
-                              );
+                          _applyFilter(
+                            mediaType: selected ? MediaType.audio : null,
+                            readingOnly: false,
+                          );
                         },
                       ),
                       ChoiceChip(
                         label: const Text('阅读'),
                         selected: _readingOnly,
                         onSelected: (selected) {
-                          setState(() {
-                            _readingOnly = selected;
-                            if (selected) {
-                              _mediaTypeFilter = null;
-                            }
-                          });
-                          context.read<SearchProvider>().setSearchFilter(
-                                mediaType: selected ? null : _mediaTypeFilter,
-                                readingOnly: selected,
-                              );
+                          _applyFilter(
+                            mediaType: selected ? null : _mediaTypeFilter,
+                            readingOnly: selected,
+                          );
                         },
                       ),
                     ],
@@ -327,7 +324,7 @@ class _SearchPageState extends State<SearchPage> {
                   );
                 }
                 if (provider.results.isEmpty && provider.lastQuery.isNotEmpty) {
-                  return const Center(child: Text('没有找到相关内容'));
+                  return _NoSearchResultState(provider: provider);
                 }
                 if (provider.results.isEmpty) {
                   return Center(
@@ -364,12 +361,15 @@ class _SearchPageState extends State<SearchPage> {
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: provider.results.length + 1,
+                  itemCount: provider.results.length + 2,
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return _SearchOptimizationHint(provider: provider);
                     }
-                    return _ResultCard(result: provider.results[index - 1]);
+                    if (index == 1) {
+                      return _SourceResultSummary(provider: provider);
+                    }
+                    return _ResultCard(result: provider.results[index - 2]);
                   },
                 );
               },
@@ -385,6 +385,116 @@ class _SearchPageState extends State<SearchPage> {
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+}
+
+class _NoSearchResultState extends StatelessWidget {
+  final SearchProvider provider;
+
+  const _NoSearchResultState({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
+    final readySources = settings.readyLocalSources.where((source) {
+      final descriptor = sourceDescriptor(source);
+      if (provider.mediaTypeFilter == MediaType.audio) {
+        return descriptor.supportsAudio;
+      }
+      if (provider.mediaTypeFilter == MediaType.video) {
+        return descriptor.supportsVideo;
+      }
+      return true;
+    }).map(settings.sourceDisplayName).toList(growable: false);
+
+    final suggestions = switch (provider.mediaTypeFilter) {
+      MediaType.audio => '尝试使用“歌手 - 歌名”或去掉 live/remix 等版本词',
+      MediaType.video => '尝试缩短关键词，保留作品名或作者名',
+      null => '尝试缩短关键词，或切换到更具体的搜索类型',
+    };
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.search_off_outlined, size: 56, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              '没有找到相关内容',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              suggestions,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            if (readySources.isEmpty)
+              const Text(
+                '当前没有已就绪的本地源，请先到设置页启用并完成配置。',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              )
+            else
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  const Chip(label: Text('当前已参与搜索的来源')),
+                  for (final source in readySources) Chip(label: Text(source)),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceResultSummary extends StatelessWidget {
+  final SearchProvider provider;
+
+  const _SourceResultSummary({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    if (provider.lastSourceResultCounts.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final chips = provider.lastSourceResultCounts.entries
+        .map(
+          (entry) => Chip(
+            label: Text(
+              '${sourceDescriptor(entry.key).label} ${entry.value}',
+            ),
+          ),
+        )
+        .toList(growable: false);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Chip(
+              avatar: const Icon(Icons.tune, size: 18),
+              label: Text(
+                '本轮检索 ${provider.lastRawResultCount} 条，去重后 ${provider.lastDedupedCount} 条',
+              ),
+            ),
+            ...chips,
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -527,7 +637,11 @@ class _ResultCard extends StatelessWidget {
     final metaLine = result.metaLine;
     final highlightTimestamp = result.primaryHighlightTimestampLabel;
     final canOpenExternally = result.hasPlayUrl || result.hasCanonicalUrl;
-    final actionLabel = result.isReadingResult ? '开始阅读' : '站内播放';
+    final actionLabel = result.isReadingResult
+        ? '开始阅读'
+        : result.canPlayInApp
+            ? '站内播放'
+            : '打开详情';
     final actionIcon =
         result.isReadingResult ? Icons.menu_book_outlined : Icons.play_arrow;
 
@@ -793,7 +907,9 @@ class _ResultCard extends StatelessWidget {
     }
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PlayerPage(request: result.toPlayRequest()),
+        builder: (_) => PlayerPage(
+          request: result.toContentRequest(),
+        ),
       ),
     );
   }
@@ -850,6 +966,12 @@ class _ResultCard extends StatelessWidget {
         return Colors.deepPurple;
       case 'jamendo':
         return Colors.orange;
+      case 'deezer':
+        return Colors.pink;
+      case 'internet_archive':
+        return Colors.brown;
+      case 'audius':
+        return Colors.purple;
       case 'podcast':
         return Colors.teal;
       case 'google':

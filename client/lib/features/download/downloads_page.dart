@@ -66,6 +66,36 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       '${task.sourceId} · ${task.status.name} · ${task.savePath}',
                     ),
                     isThreeLine: true,
+                    trailing: Wrap(
+                      spacing: 4,
+                      children: [
+                        if (task.status == DownloadStatus.running)
+                          IconButton(
+                            tooltip: '暂停',
+                            onPressed: () => context
+                                .read<DownloadCoordinator>()
+                                .pauseTask(task),
+                            icon: const Icon(Icons.pause_circle_outline),
+                          ),
+                        if (task.status == DownloadStatus.paused)
+                          IconButton(
+                            tooltip: '恢复',
+                            onPressed: () => context
+                                .read<DownloadCoordinator>()
+                                .resumeTask(task),
+                            icon: const Icon(Icons.play_circle_outline),
+                          ),
+                        if (task.status != DownloadStatus.completed &&
+                            task.status != DownloadStatus.canceled)
+                          IconButton(
+                            tooltip: '取消',
+                            onPressed: () => context
+                                .read<DownloadCoordinator>()
+                                .cancelTask(task),
+                            icon: const Icon(Icons.cancel_outlined),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -93,6 +123,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       '${asset.kind == OfflineAssetKind.snapshot ? '快照' : '下载'} · ${asset.contentType.isEmpty ? asset.mimeType : asset.contentType} · ${asset.localPath}',
                     ),
                     isThreeLine: true,
+                    trailing: IconButton(
+                      tooltip: '移除资产',
+                      onPressed: () =>
+                          context.read<DownloadCoordinator>().evictAsset(asset),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),

@@ -8,6 +8,7 @@ import '../features/search/sources/internet_archive_local_source.dart';
 import '../features/search/sources/internet_archive_video_local_source.dart';
 import '../features/search/sources/itunes_local_source.dart';
 import '../features/search/sources/jamendo_local_source.dart';
+import '../features/search/sources/audius_local_source.dart';
 import '../features/search/sources/vimeo_local_source.dart';
 import '../features/search/sources/peertube_local_source.dart';
 import '../features/search/sources/acfun_local_source.dart';
@@ -31,6 +32,9 @@ final Map<String, SearchSourceFactory> kLocalSourceRegistry = {
   'internet_archive_video': (_) => InternetArchiveVideoLocalSource(),
   'jamendo': (config) => JamendoLocalSource(
         clientId: config.credentials['apiKey'] ?? '',
+      ),
+  'audius': (config) => AudiusLocalSource(
+        apiKey: config.credentials['apiKey'] ?? '',
       ),
   'vimeo': (config) => VimeoLocalSource(
         accessToken: config.credentials['accessToken'] ?? '',

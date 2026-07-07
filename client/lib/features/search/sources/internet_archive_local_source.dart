@@ -217,6 +217,9 @@ class InternetArchiveLocalSource implements SearchSource {
     if (identifier.isEmpty) {
       return null;
     }
+    if (!_looksMusicLike(doc)) {
+      return null;
+    }
 
     final metadata = await _loadMetadata(identifier);
     final selection = _selectPlayableFile(identifier, metadata);
@@ -423,7 +426,33 @@ class InternetArchiveLocalSource implements SearchSource {
 
   static String _buildQuery(String query) {
     final escaped = query.replaceAll('"', r'\"').trim();
-    return 'title:("$escaped") AND mediatype:(audio OR etree)';
+    return '''
+(title:("$escaped") OR creator:("$escaped") OR subject:("$escaped"))
+AND mediatype:(audio OR etree)
+AND -collection:(podcasts)
+AND -collection:(audio_bookspoetry)
+'''.replaceAll('\n', ' ');
+  }
+
+  bool _looksMusicLike(Map<String, dynamic> doc) {
+    final title = _stringify(doc['title']).toLowerCase();
+    final collection = _stringify(doc['collection']).toLowerCase();
+    final description = _stringify(doc['description']).toLowerCase();
+    final combined = '$title $collection $description';
+    if (combined.contains('podcast') ||
+        combined.contains('audiobook') ||
+        combined.contains('speech') ||
+        combined.contains('sermon')) {
+      return false;
+    }
+    if (combined.contains('music') ||
+        combined.contains('album') ||
+        combined.contains('song') ||
+        combined.contains('concert') ||
+        combined.contains('etree')) {
+      return true;
+    }
+    return !combined.contains('episode');
   }
 
   static String _stringify(Object? value) {

@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:content_seeker/app/content/content_bridge.dart';
 import 'package:content_seeker/app/content/content_request.dart';
 import 'package:content_seeker/domain/download/download_request.dart';
-import 'package:content_seeker/models/play_request.dart';
 import 'package:content_seeker/models/search_result.dart';
 
 void main() {
@@ -66,7 +65,7 @@ void main() {
       expect(contentRequest.headers, {'Authorization': 'Bearer token'});
     });
 
-    test('bridges content request back to legacy requests and validates uri', () {
+    test('bridges content request back to legacy download request and validates uri', () {
       final contentRequest = ContentRequest(
         intent: ContentIntent.playback,
         contentId: 'vid-9',
@@ -81,12 +80,10 @@ void main() {
         headers: {'Referer': 'https://example.com'},
       );
 
-      final playRequest = contentRequest.toLegacyPlayRequest();
       final downloadRequest = contentRequest.toLegacyDownloadRequest();
 
-      expect(playRequest.url, 'https://example.com/video/watch.mp4');
-      expect(playRequest.mediaType, PlayMediaType.video);
-      expect(playRequest.sourceHint, 'bilibili');
+      expect(contentRequest.hasPrimaryUri, isTrue);
+      expect(contentRequest.stableId, 'bilibili-vid-9');
       expect(downloadRequest.filename, 'Harbor Story.mp4');
       expect(downloadRequest.headers, {'Referer': 'https://example.com'});
 
@@ -96,7 +93,6 @@ void main() {
         sourceId: 'bilibili',
         title: 'Broken',
       );
-      expect(noUriRequest.toLegacyPlayRequest, throwsStateError);
       expect(noUriRequest.toLegacyDownloadRequest, throwsStateError);
     });
   });

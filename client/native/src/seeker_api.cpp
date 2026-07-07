@@ -7,6 +7,7 @@
 #include "core/seeker_context.h"
 #include "core/thread_pool.h"
 #include "core/callback_dispatcher.h"
+#include "runtime/runtime_manager.h"
 #include "extractor/extractor_registry.h"
 #include "extractor/plugins/bilibili_plugin.h"
 #include "extractor/plugins/youtube_plugin.h"
@@ -18,7 +19,7 @@
 #include <cstring>
 #include <cstdlib>
 
-static const char* SEEKER_VERSION = "0.2.0";
+static const char* SEEKER_VERSION = "0.3.0";
 
 static char* seeker_strdup(const char* str) {
     if (!str) {
@@ -177,38 +178,209 @@ const char* seeker_get_supported_sites(void) {
     return sites_cache.c_str();
 }
 
-// ===== 播放控制 (Phase 4 实现，当前提供桩) =====
+// ===== Runtime / 播放控制 =====
 
-int32_t seeker_player_create(seeker_player_event_callback callback) {
-    (void)callback;
-    return SEEKER_ERROR_NOT_INIT; // 暂未实现
+int32_t seeker_runtime_create(const char* config_json) {
+    if (!seeker::SeekerContext::instance().is_initialized()) {
+        return SEEKER_ERROR_NOT_INIT;
+    }
+    return seeker::RuntimeManager::instance().create_runtime(
+        config_json ? config_json : "{}"
+    );
 }
 
-int seeker_player_open(int32_t player_id, const char* stream_json) {
-    (void)player_id; (void)stream_json;
-    return SEEKER_ERROR_NOT_INIT;
+void seeker_runtime_destroy(int32_t runtime_id) {
+    seeker::RuntimeManager::instance().destroy_runtime(runtime_id);
 }
 
-int seeker_player_play(int32_t player_id) {
-    (void)player_id;
-    return SEEKER_ERROR_NOT_INIT;
+int32_t seeker_session_create(
+    int32_t runtime_id,
+    seeker_runtime_event_callback callback
+) {
+    if (!seeker::SeekerContext::instance().is_initialized()) {
+        return SEEKER_ERROR_NOT_INIT;
+    }
+    return seeker::RuntimeManager::instance().create_session(runtime_id, callback);
 }
 
-int seeker_player_pause(int32_t player_id) {
-    (void)player_id;
-    return SEEKER_ERROR_NOT_INIT;
+int seeker_session_dispose(int32_t runtime_id, int32_t session_id) {
+    return seeker::RuntimeManager::instance().dispose_session(runtime_id, session_id);
 }
 
-int seeker_player_seek(int32_t player_id, double position_seconds) {
-    (void)player_id; (void)position_seconds;
-    return SEEKER_ERROR_NOT_INIT;
+char* seeker_resolve_media(
+    int32_t runtime_id,
+    const char* request_json
+) {
+    if (!seeker::SeekerContext::instance().is_initialized()) {
+        return seeker_strdup("{\"error\":\"libseeker not initialized\"}");
+    }
+    if (!request_json) {
+        return seeker_strdup("{\"error\":\"request_json is null\"}");
+    }
+    const std::string result = seeker::RuntimeManager::instance().resolve_media(
+        runtime_id,
+        request_json
+    );
+    return seeker_strdup(result.c_str());
 }
 
-int seeker_player_set_rate(int32_t player_id, double rate) {
-    (void)player_id; (void)rate;
-    return SEEKER_ERROR_NOT_INIT;
+int seeker_session_open(
+    int32_t runtime_id,
+    int32_t session_id,
+    const char* resolved_media_json
+) {
+    if (!resolved_media_json) return SEEKER_ERROR_INVALID;
+    return seeker::RuntimeManager::instance().session_open(
+        runtime_id,
+        session_id,
+        resolved_media_json
+    );
 }
 
-void seeker_player_destroy(int32_t player_id) {
-    (void)player_id;
+int seeker_session_play(int32_t runtime_id, int32_t session_id) {
+    return seeker::RuntimeManager::instance().session_play(runtime_id, session_id);
+}
+
+int seeker_session_pause(int32_t runtime_id, int32_t session_id) {
+    return seeker::RuntimeManager::instance().session_pause(runtime_id, session_id);
+}
+
+int seeker_session_seek(
+    int32_t runtime_id,
+    int32_t session_id,
+    int64_t position_ms
+) {
+    return seeker::RuntimeManager::instance().session_seek(
+        runtime_id,
+        session_id,
+        position_ms
+    );
+}
+
+int seeker_session_set_rate(
+    int32_t runtime_id,
+    int32_t session_id,
+    double rate
+) {
+    return seeker::RuntimeManager::instance().session_set_rate(
+        runtime_id,
+        session_id,
+        rate
+    );
+}
+
+int seeker_session_set_volume(
+    int32_t runtime_id,
+    int32_t session_id,
+    double volume
+) {
+    return seeker::RuntimeManager::instance().session_set_volume(
+        runtime_id,
+        session_id,
+        volume
+    );
+}
+
+int seeker_session_select_track(
+    int32_t runtime_id,
+    int32_t session_id,
+    const char* track_id
+) {
+    if (!track_id) return SEEKER_ERROR_INVALID;
+    return seeker::RuntimeManager::instance().session_select_track(
+        runtime_id,
+        session_id,
+        track_id
+    );
+}
+
+int seeker_session_select_variant(
+    int32_t runtime_id,
+    int32_t session_id,
+    const char* variant_id
+) {
+    if (!variant_id) return SEEKER_ERROR_INVALID;
+    return seeker::RuntimeManager::instance().session_select_variant(
+        runtime_id,
+        session_id,
+        variant_id
+    );
+}
+
+char* seeker_build_download_plan(
+    int32_t runtime_id,
+    const char* resolved_media_json,
+    const char* options_json
+) {
+    if (!resolved_media_json) {
+        return seeker_strdup("{\"error\":\"resolved_media_json is null\"}");
+    }
+    const std::string result = seeker::RuntimeManager::instance().build_download_plan(
+        runtime_id,
+        resolved_media_json,
+        options_json ? options_json : "{}"
+    );
+    return seeker_strdup(result.c_str());
+}
+
+int32_t seeker_download_start(
+    int32_t runtime_id,
+    const char* download_plan_json
+) {
+    if (!download_plan_json) return SEEKER_ERROR_INVALID;
+    return seeker::RuntimeManager::instance().download_start(runtime_id, download_plan_json);
+}
+
+int seeker_download_pause(int32_t runtime_id, int32_t download_id) {
+    return seeker::RuntimeManager::instance().download_pause(runtime_id, download_id);
+}
+
+int seeker_download_resume(int32_t runtime_id, int32_t download_id) {
+    return seeker::RuntimeManager::instance().download_resume(runtime_id, download_id);
+}
+
+int seeker_download_cancel(int32_t runtime_id, int32_t download_id) {
+    return seeker::RuntimeManager::instance().download_cancel(runtime_id, download_id);
+}
+
+char* seeker_query_asset(
+    int32_t runtime_id,
+    const char* media_id
+) {
+    if (!media_id) return seeker_strdup("{\"error\":\"media_id is null\"}");
+    const std::string result = seeker::RuntimeManager::instance().query_asset(
+        runtime_id,
+        media_id
+    );
+    return seeker_strdup(result.c_str());
+}
+
+char* seeker_list_assets(
+    int32_t runtime_id,
+    const char* filter_json
+) {
+    const std::string result = seeker::RuntimeManager::instance().list_assets(
+        runtime_id,
+        filter_json ? filter_json : "{}"
+    );
+    return seeker_strdup(result.c_str());
+}
+
+char* seeker_list_downloads(
+    int32_t runtime_id,
+    const char* filter_json
+) {
+    const std::string result = seeker::RuntimeManager::instance().list_downloads(
+        runtime_id,
+        filter_json ? filter_json : "{}"
+    );
+    return seeker_strdup(result.c_str());
+}
+
+int seeker_evict_asset(
+    int32_t runtime_id,
+    const char* asset_id
+) {
+    if (!asset_id) return SEEKER_ERROR_INVALID;
+    return seeker::RuntimeManager::instance().evict_asset(runtime_id, asset_id);
 }

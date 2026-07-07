@@ -251,6 +251,58 @@ std::vector<std::string> get_array_field(const std::string& json_array, const st
     return results;
 }
 
+std::map<std::string, std::string> get_object_string_map(
+    const std::string& json,
+    const std::string& key
+) {
+    std::map<std::string, std::string> result;
+    size_t start = 0;
+    size_t end = 0;
+    if (!find_object(json, key, start, end)) {
+      return result;
+    }
+
+    const std::string object = json.substr(start, end - start + 1);
+    size_t pos = skip_ws(object, 0);
+    if (pos >= object.size() || object[pos] != '{') return result;
+    pos = skip_ws(object, pos + 1);
+
+    while (pos < object.size() && object[pos] != '}') {
+        if (object[pos] != '"') {
+            ++pos;
+            continue;
+        }
+        const size_t key_start = pos;
+        const std::string field_key = extract_string_value(object, key_start);
+        if (field_key.empty()) {
+            ++pos;
+            continue;
+        }
+        pos = object.find(':', key_start);
+        if (pos == std::string::npos) break;
+        pos = skip_ws(object, pos + 1);
+        std::string field_value;
+        if (pos < object.size() && object[pos] == '"') {
+            field_value = extract_string_value(object, pos);
+            pos = object.find('"', pos + 1);
+            while (pos != std::string::npos && pos + 1 < object.size() && object[pos - 1] == '\\') {
+                pos = object.find('"', pos + 1);
+            }
+            if (pos == std::string::npos) break;
+            ++pos;
+        } else {
+            field_value = extract_number(object, pos);
+            pos += field_value.size();
+        }
+        result[field_key] = field_value;
+        pos = skip_ws(object, pos);
+        if (pos < object.size() && object[pos] == ',') {
+            pos = skip_ws(object, pos + 1);
+        }
+    }
+    return result;
+}
+
 std::string escape(const std::string& s) {
     std::string result;
     result.reserve(s.size() + 16);
